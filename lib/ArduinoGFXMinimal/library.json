@@ -1,0 +1,7 @@
+{
+  "name": "Arduino GFX minimal ESP32-P4 DSI subset",
+  "version": "1.6.0",
+  "license": "Apache-2.0",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Waveshare ESP32-P4 LCD-X display support",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}
+
