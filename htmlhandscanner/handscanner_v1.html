@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">  
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handscan Interaction</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #000;
+            touch-action: none;
+        }
+
+        .container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: url('./OrangeBackground.png') no-repeat center center;
+            background-size: cover;
+        }
+
+        .hand {
+            position: absolute;
+            left: -60px;
+            top: -400px;
+            width: 115%;
+            height: 150%;
+            background: url('./Handprint.png') no-repeat center center;
+            background-size: contain;
+            opacity: 0.8;
+            animation: hologram 2s infinite;
+        }
+
+        .hand .scan-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, rgba(255, 0, 0, 0.3), rgba(0, 255, 0, 0) 50%, rgba(0, 0, 255, 0.3) 100%);
+            background-size: 100% 100%;
+            animation: scanning 3s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes hologram {
+            0% { filter: hue-rotate(0deg) drop-shadow(0 0 5px rgba(255, 128, 0, 0.7)); }
+            50% { filter: hue-rotate(180deg) drop-shadow(0 0 1px rgba(255, 128, 0, 0.7)); transform: scale(0.995); }
+            100% { filter: hue-rotate(360deg) drop-shadow(0 0 5px rgba(255, 128, 0, 0.7)); }
+        }
+
+        @keyframes scanning {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+
+        .clickable {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            background-color: rgba(0, 128, 255, 0.5);
+            border-radius: 50%;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            color: white;
+            font-family: Arial, sans-serif;
+            user-select: none;
+            outline: none;
+            -webkit-tap-highlight-color: transparent;
+            box-shadow: none;
+        }
+
+        .clickable:hover {
+            background-color: rgba(140, 0, 255, 0.11);
+        }
+
+        #result {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 84px;
+            font-weight: bolder;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+        #foreground.fade-out {
+            opacity: 0;
+            transition: opacity 2s ease-in-out;
+        }
+		#skull-image {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			opacity: 0;
+			z-index: 1000;
+			transition: opacity 2s ease-in-out;
+			pointer-events: none; /* 👈 THIS FIXES IT */
+		}
+    </style>
+</head>
+<body>
+    <script src="./jquery.min.js"></script>
+    <script src="./config.js"></script>
+
+    <audio id="heart-sound" src="./heart-beat-fx_79bpm.mp3" preload="auto"></audio>
+    <audio id="finger-sound" src="./finger_tap.mp3" preload="auto"></audio>
+    <audio id="access-granted-sound" src="./access-granted.mp3" preload="auto"></audio>
+    <audio id="access-denied-sound" src="./access-denied.mp3" preload="auto"></audio>
+
+    <div id="blackout" style="
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: black;
+        z-index: 9999;
+        display: none;">
+    </div>
+
+    <div class="container">
+
+        <!-- Foreground elements grouped here -->
+        <div id="foreground">
+            <div class="background"></div>
+            <div class="hand">
+                <div class="scan-effect"></div>
+            </div>
+
+            <!-- Clickable areas for fingers -->
+            <div class="clickable" id="finger1" style="top: 49%; left: 10%;" onclick="fingerClicked(1)"></div>
+            <div class="clickable" id="finger2" style="top: 17%; left: 37%;" onclick="fingerClicked(2)"></div>
+            <div class="clickable" id="finger3" style="top: 15%; left: 55%;" onclick="fingerClicked(3)"></div>
+            <div class="clickable" id="finger4" style="top: 19%; left: 70%;" onclick="fingerClicked(4)"></div>
+            <div class="clickable" id="finger5" style="top: 32%; left: 93%;" onclick="fingerClicked(5)"></div>
+            <div id="result" style="
+                position: absolute;
+                bottom: 110px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 30px;
+                font-weight: bold;
+                color: white;
+                font-family: Arial, sans-serif;
+                text-align: center;">
+            </div>
+        </div>
+
+        <!-- Skull image (initially hidden) -->
+        <img id="skull-image" src="./Skull.png" alt="Skull Reveal" />
+
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>
