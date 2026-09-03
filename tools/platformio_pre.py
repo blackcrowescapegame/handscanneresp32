@@ -7,6 +7,15 @@ import subprocess
 # Windows code pages such as cp1252 do not abort long flash operations.
 env["ENV"]["PYTHONIOENCODING"] = "utf-8"
 
+# Keep the user-visible firmware version in platformio.ini while exposing it as
+# a normal C string to the application and its health endpoint.
+firmware_version = env.GetProjectOption("custom_firmware_version")
+env.Append(
+    CPPDEFINES=[
+        ("HANDSCANNER_FIRMWARE_VERSION", '\\"' + firmware_version + '\\"'),
+    ]
+)
+
 # pioarduino installs its Python uploader as an editable package. When an
 # overridden tool version is installed for the first time, the old editable
 # link can remain in PlatformIO's Python environment. Repair it before any

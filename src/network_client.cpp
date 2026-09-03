@@ -2,7 +2,9 @@
 
 #include <ArduinoOTA.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
 #include <WiFi.h>
+#include <esp_ota_ops.h>
 #include <time.h>
 
 #include "app_config.h"
@@ -21,8 +23,43 @@ String lastChanged;
 String lastReported;
 String lastUpdated;
 bool otaStarted = false;
-bool otaInProgress = false;
+volatile bool otaInProgress = false;
 uint8_t lastOtaPercent = 255;
+uint8_t lastOtaError = 0;
+const char *otaState = "disabled";
+bool healthApiStarted = false;
+WebServer healthServer(HANDSCANNER_HEALTH_API_PORT);
+
+void startHealthApi() {
+    if (healthApiStarted) return;
+
+    healthServer.on("/api/health", HTTP_GET, []() {
+        const esp_partition_t *running = esp_ota_get_running_partition();
+        const char *partition = running != nullptr ? running->label : "unknown";
+
+        String body;
+        body.reserve(320);
+        body = "{\"status\":\"ok\",\"state\":\"";
+        body += otaInProgress ? "ota_updating" : "ready";
+        body += "\",\"version\":\"" HANDSCANNER_FIRMWARE_VERSION "\"";
+        body += ",\"uptime_ms\":" + String(millis());
+        body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+        body += ",\"rssi_dbm\":" + String(WiFi.RSSI());
+        body += ",\"free_heap_bytes\":" + String(ESP.getFreeHeap());
+        body += ",\"ota_enabled\":";
+        body += strlen(HANDSCANNER_OTA_PASSWORD) > 0 ? "true" : "false";
+        body += ",\"ota_state\":\"" + String(otaState) + "\"";
+        body += ",\"ota_error\":" + String(lastOtaError);
+        body += ",\"ota_partition\":\"" + String(partition) + "\"}";
+
+        healthServer.sendHeader("Cache-Control", "no-store");
+        healthServer.sendHeader("Access-Control-Allow-Origin", "*");
+        healthServer.send(200, "application/json", body);
+    });
+    healthServer.begin();
+    healthApiStarted = true;
+    Serial.printf("HTTP API: http://%s/api/health\n", WiFi.localIP().toString().c_str());
+}
 
 void startOta() {
     if (otaStarted || strlen(HANDSCANNER_OTA_PASSWORD) == 0) return;
@@ -33,6 +70,8 @@ void startOta() {
     ArduinoOTA.setRebootOnSuccess(true);
     ArduinoOTA.onStart([]() {
         otaInProgress = true;
+        otaState = "updating";
+        lastOtaError = 0;
         lastOtaPercent = 255;
         Serial.println("OTA: update started");
     });
@@ -45,14 +84,18 @@ void startOta() {
         }
     });
     ArduinoOTA.onEnd([]() {
+        otaState = "success";
         Serial.println("OTA: update complete; rebooting");
     });
     ArduinoOTA.onError([](ota_error_t error) {
         otaInProgress = false;
+        otaState = "failed";
+        lastOtaError = static_cast<uint8_t>(error);
         Serial.printf("OTA: failed (%u)\n", static_cast<unsigned int>(error));
     });
     ArduinoOTA.begin();
     otaStarted = true;
+    otaState = "ready";
     Serial.printf("OTA: ready at %s.local:%u\n", HANDSCANNER_OTA_HOSTNAME,
                   static_cast<unsigned int>(HANDSCANNER_OTA_PORT));
 }
@@ -179,6 +222,8 @@ void networkTask(void *) {
         }
 
         if (WiFi.status() == WL_CONNECTED) {
+            startHealthApi();
+            healthServer.handleClient();
             startOta();
             if (otaStarted) ArduinoOTA.handle();
             if (otaInProgress) {
@@ -215,4 +260,8 @@ void networkSubmitSequence(const uint8_t *values, size_t count) {
     message.count = min(count, sizeof(message.values));
     memcpy(message.values, values, message.count);
     xQueueSend(sequenceQueue, &message, 0);
+}
+
+bool networkOtaInProgress() {
+    return otaInProgress;
 }

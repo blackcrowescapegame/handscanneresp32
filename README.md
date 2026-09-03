@@ -18,6 +18,7 @@ Wi-Fi interface.
 - remote command `3`: full-screen Belial hint
 - skull fade on a successful solution and two-second reset after denial
 - authenticated Arduino OTA firmware updates over Wi-Fi
+- read-only JSON health/version API at `/api/health`
 
 ## Configure
 
@@ -75,6 +76,21 @@ deployOTA.cmd 192.168.40.57
 Each OTA update is written to the inactive slot, verified, selected for the
 next boot, and then activated by an automatic restart. A USB upload remains
 available as the recovery path.
+
+### Check the running firmware
+
+Increment `custom_firmware_version` in `platformio.ini` when preparing a new
+release. The running device reports that version and its active OTA slot:
+
+```powershell
+curl.exe http://192.168.40.57/api/health
+```
+
+Example response:
+
+```json
+{"status":"ok","state":"ready","version":"1.1.0","uptime_ms":12345,"ip":"192.168.40.57","rssi_dbm":-52,"free_heap_bytes":180000,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_0"}
+```
 
 ## Assets
 

@@ -374,6 +374,13 @@ void setup() {
 }
 
 void loop() {
+    // OTA erases and writes the inactive app partition. Avoid concurrent reads
+    // of the large flash-embedded UI assets until verification is complete.
+    if (networkOtaInProgress()) {
+        delay(20);
+        return;
+    }
+
     const uint32_t now = millis();
 
     RemoteCommand command;

@@ -50,5 +50,13 @@
 #define HANDSCANNER_OTA_PORT 3232
 #endif
 
+#ifndef HANDSCANNER_FIRMWARE_VERSION
+#define HANDSCANNER_FIRMWARE_VERSION "0.0.0-dev"
+#endif
+
+#ifndef HANDSCANNER_HEALTH_API_PORT
+#define HANDSCANNER_HEALTH_API_PORT 80
+#endif
+
 // Native portrait orientation for the 800x1280 panel.
 #define HANDSCANNER_DISPLAY_ROTATION 0
