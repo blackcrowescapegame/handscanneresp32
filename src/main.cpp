@@ -10,8 +10,8 @@
 #include "network_client.h"
 
 namespace {
-constexpr int16_t kWidth = 1280;
-constexpr int16_t kHeight = 800;
+constexpr int16_t kWidth = 800;
+constexpr int16_t kHeight = 1280;
 constexpr int16_t kTouchRadius = 35;
 constexpr uint32_t kScanPeriodMs = 3000;
 constexpr uint32_t kScanFrameMs = 50;
@@ -28,11 +28,11 @@ struct TouchTarget {
 };
 
 constexpr TouchTarget kTargets[5] = {
-    {128, 392},   // 10%, 49%
-    {474, 136},   // 37%, 17%
-    {704, 120},   // 55%, 15%
-    {896, 152},   // 70%, 19%
-    {1190, 256},  // 93%, 32%
+    {128, 635},  // Thumb
+    {317, 349},
+    {450, 334},
+    {554, 349},
+    {695, 498},
 };
 
 enum class ScreenMode : uint8_t {
@@ -131,9 +131,9 @@ void drawButtons() {
 
 void drawResult() {
     if (resultState == ResultState::Granted) {
-        drawCenteredText("ACCESS GRANTED", 665, RGB565_WHITE, 4);
+        drawCenteredText("ACCESS GRANTED", 1100, RGB565_WHITE, 4);
     } else if (resultState == ResultState::Denied) {
-        drawCenteredText("ACCESS DENIED", 665, RGB565_RED, 4);
+        drawCenteredText("ACCESS DENIED", 1100, RGB565_RED, 4);
     }
 }
 
@@ -178,14 +178,20 @@ void applyRemoteCommand(RemoteCommand command) {
 }
 
 bool transformTouch(uint16_t rawX, uint16_t rawY, int16_t &x, int16_t &y) {
-#if HANDSCANNER_DISPLAY_ROTATION == 1
+#if HANDSCANNER_DISPLAY_ROTATION == 0
+    x = rawX;
+    y = rawY;
+#elif HANDSCANNER_DISPLAY_ROTATION == 1
     x = rawY;
     y = display_cfg.width - 1 - rawX;
+#elif HANDSCANNER_DISPLAY_ROTATION == 2
+    x = display_cfg.width - 1 - rawX;
+    y = display_cfg.height - 1 - rawY;
 #elif HANDSCANNER_DISPLAY_ROTATION == 3
     x = display_cfg.height - 1 - rawY;
     y = rawX;
 #else
-#error "The native handscanner UI supports landscape rotations 1 and 3"
+#error "HANDSCANNER_DISPLAY_ROTATION must be between 0 and 3"
 #endif
     return x >= 0 && x < kWidth && y >= 0 && y < kHeight;
 }
@@ -393,4 +399,3 @@ void loop() {
 
     delay(5);
 }
-

@@ -50,6 +50,5 @@
 #define HANDSCANNER_OTA_PORT 3232
 #endif
 
-// Landscape rotation. 1 places the long edge horizontally with the board's
-// native top on the left; use 3 and update transformTouch() if mounted opposite.
-#define HANDSCANNER_DISPLAY_ROTATION 1
+// Native portrait orientation for the 800x1280 panel.
+#define HANDSCANNER_DISPLAY_ROTATION 0

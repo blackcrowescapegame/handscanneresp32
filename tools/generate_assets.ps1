@@ -20,24 +20,24 @@ $basePng = Join-Path $work "base.png"
 $skullPng = Join-Path $work "skull.png"
 $hintPng = Join-Path $work "hint.png"
 
-# Reproduce the browser's 1280x800 layout: the background covers the panel and
-# the 115%x150% hand layer is offset -60px/-400px with contain sizing.
+# Build directly for the panel's native 800x1280 portrait orientation. The hand
+# keeps its aspect ratio, fits within the short edge, and is centered vertically.
 Invoke-Ffmpeg @(
     "-i", (Join-Path $source "Background.png"),
     "-i", (Join-Path $source "Handprint.png"),
-    "-filter_complex", "[0:v]scale=1280:800:flags=lanczos[bg];[1:v]scale=1200:1200:flags=lanczos,colorchannelmixer=aa=0.8[hand];[bg][hand]overlay=76:-400:format=auto,format=rgb24[out]",
+    "-filter_complex", "[0:v]scale=1280:800:flags=lanczos,transpose=1[bg];[1:v]scale=760:760:flags=lanczos,colorchannelmixer=aa=0.8[hand];[bg][hand]overlay=20:260:format=auto,format=rgb24[out]",
     "-map", "[out]", "-frames:v", "1", $basePng
 )
 
 # CSS object-fit: cover for the skull and contain on black for the hint.
 Invoke-Ffmpeg @(
     "-i", (Join-Path $source "Skull.png"),
-    "-vf", "scale=1280:1774:flags=lanczos,crop=1280:800:0:487,format=rgb24",
+    "-vf", "scale=1280:1774:flags=lanczos,crop=1280:800:0:487,transpose=1,format=rgb24",
     "-frames:v", "1", $skullPng
 )
 Invoke-Ffmpeg @(
     "-i", (Join-Path $source "02_Liquidos_Hint_Belial.png"),
-    "-vf", "scale=1035:800:flags=lanczos,pad=1280:800:122:0:black,format=rgb24",
+    "-vf", "scale=1035:800:flags=lanczos,pad=1280:800:122:0:black,transpose=1,format=rgb24",
     "-frames:v", "1", $hintPng
 )
 
@@ -64,4 +64,3 @@ foreach ($entry in $clips.GetEnumerator()) {
 }
 
 Get-ChildItem $ui, $audio -File | Select-Object FullName, Length
-

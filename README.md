@@ -7,7 +7,7 @@ Wi-Fi interface.
 
 ## Included behavior
 
-- 1280x800 landscape handscanner UI using the original artwork
+- 800x1280 portrait handscanner UI using the original artwork
 - animated scan line and five capacitive-touch targets
 - the original solution, `3, 2, 4, 5, 1`
 - finger, access-granted, access-denied, and three-play reset-riser sounds
@@ -59,19 +59,17 @@ need a separate build target and must not be flashed with this binary.
 
 The dual-slot OTA partition table must first be installed once through USB.
 After that first USB upload, confirm the serial log contains `OTA: ready` and
-note the device IP address. In PowerShell, set the same password used in
-`include/secrets.h`, then upload with the OTA environment:
+run the deployment script. It reads the password from `include/secrets.h`
+without printing it and defaults to this unit's current IP, `192.168.40.57`:
 
-```powershell
-$env:HANDSCANNER_OTA_PASSWORD = "your-ota-password"
-pio run -e waveshare-esp32-p4-10-1-ota -t upload
+```bat
+deployOTA.cmd
 ```
 
-The default OTA address is `handscanner.local`. If Windows cannot resolve that
-mDNS name, supply the IP printed in the serial log:
+Pass another IP or mDNS hostname as the first argument if DHCP changes it:
 
-```powershell
-pio run -e waveshare-esp32-p4-10-1-ota -t upload --upload-port 192.168.1.50
+```bat
+deployOTA.cmd 192.168.40.57
 ```
 
 Each OTA update is written to the inactive slot, verified, selected for the
@@ -97,6 +95,7 @@ application slots so the approximately 7.7 MB firmware can be updated safely.
 - `src/audio_engine.cpp`: ES8311/I2S PCM playback task
 - `tools/platformio_pre.py`: Windows toolchain path and pinned esptool setup
 - `tools/platformio_post.py`: Windows-safe esptool progress configuration
+- `deployOTA.cmd`: authenticated OTA build and upload using the private header
 - `lib/WaveshareDisplays/`: first-party Waveshare display/touch support
 - `lib/ArduinoGFXMinimal/`: Waveshare-tested ESP32-P4 DSI subset of Arduino_GFX
 - `lib/ES8311/`: first-party ES8311 codec driver
