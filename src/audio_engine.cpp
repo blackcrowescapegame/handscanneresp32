@@ -162,3 +162,9 @@ void audioPlay(EmbeddedClip clip, uint8_t repeats) {
     xQueueOverwrite(requestQueue, &request);
 }
 
+void audioStop() {
+    if (!ready || requestQueue == nullptr) return;
+    const AudioRequest stopRequest{nullptr, 0, 0};
+    xQueueOverwrite(requestQueue, &stopRequest);
+    i2s_zero_dma_buffer(kI2sPort);
+}

@@ -5,11 +5,18 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
+#include <ping/ping_sock.h>
 #include <time.h>
 
 #include "app_config.h"
 
 namespace {
+constexpr uint32_t kWifiReconnectIntervalMs = 10000;
+constexpr uint32_t kGatewayPingIntervalMs = 10000;
+constexpr uint32_t kGatewayPingTimeoutMs = 1000;
+constexpr uint8_t kFailedProbesBeforeRadioReset = 3;
+constexpr uint32_t kOtaUiReadyTimeoutMs = 3000;
+
 struct SequenceMessage {
     uint8_t values[5];
     uint8_t count;
@@ -24,38 +31,170 @@ String lastReported;
 String lastUpdated;
 bool otaStarted = false;
 volatile bool otaInProgress = false;
+volatile bool otaUiReady = false;
 uint8_t lastOtaPercent = 255;
 uint8_t lastOtaError = 0;
 const char *otaState = "disabled";
 bool healthApiStarted = false;
+bool healthApiConfigured = false;
+bool wifiWasConnected = false;
+volatile uint8_t failedGatewayProbes = 0;
+volatile bool radioReconnectRequested = false;
+uint32_t radioReconnectCount = 0;
+esp_ping_handle_t gatewayPing = nullptr;
 WebServer healthServer(HANDSCANNER_HEALTH_API_PORT);
+
+void onGatewayPingSuccess(esp_ping_handle_t ping, void *) {
+    uint32_t elapsedMs = 0;
+    esp_ping_get_profile(ping, ESP_PING_PROF_TIMEGAP, &elapsedMs, sizeof(elapsedMs));
+    const uint8_t previousFailures = failedGatewayProbes;
+    failedGatewayProbes = 0;
+    if (previousFailures > 0) {
+        Serial.printf("WiFi: gateway probe recovered after %u failure(s), %lu ms\n",
+                      previousFailures, static_cast<unsigned long>(elapsedMs));
+    }
+}
+
+void onGatewayPingTimeout(esp_ping_handle_t, void *) {
+    uint8_t failures = failedGatewayProbes;
+    if (failures < UINT8_MAX) ++failures;
+    failedGatewayProbes = failures;
+    Serial.printf("WiFi: gateway probe failed (%u/%u)\n", failures,
+                  kFailedProbesBeforeRadioReset);
+    if (failures >= kFailedProbesBeforeRadioReset) {
+        radioReconnectRequested = true;
+    }
+}
+
+void onGatewayPingEnd(esp_ping_handle_t, void *) {}
+
+void stopGatewayPing() {
+    if (gatewayPing == nullptr) return;
+    esp_ping_stop(gatewayPing);
+    esp_ping_delete_session(gatewayPing);
+    gatewayPing = nullptr;
+    failedGatewayProbes = 0;
+}
+
+void startGatewayPing() {
+    if (gatewayPing != nullptr || WiFi.status() != WL_CONNECTED) return;
+
+    const IPAddress gateway = WiFi.gatewayIP();
+    if (gateway == IPAddress(0, 0, 0, 0)) {
+        Serial.println("WiFi: gateway probe unavailable (no gateway address)");
+        return;
+    }
+
+    esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
+    config.count = ESP_PING_COUNT_INFINITE;
+    config.interval_ms = kGatewayPingIntervalMs;
+    config.timeout_ms = kGatewayPingTimeoutMs;
+    config.data_size = 32;
+    IP_ADDR4(&config.target_addr, gateway[0], gateway[1], gateway[2], gateway[3]);
+
+    const esp_ping_callbacks_t callbacks = {
+        .cb_args = nullptr,
+        .on_ping_success = onGatewayPingSuccess,
+        .on_ping_timeout = onGatewayPingTimeout,
+        .on_ping_end = onGatewayPingEnd,
+    };
+    const esp_err_t created = esp_ping_new_session(&config, &callbacks, &gatewayPing);
+    if (created != ESP_OK || esp_ping_start(gatewayPing) != ESP_OK) {
+        Serial.printf("WiFi: could not start gateway probe (%d)\n", created);
+        stopGatewayPing();
+        return;
+    }
+    Serial.printf("WiFi: probing gateway %s every %lu seconds\n", gateway.toString().c_str(),
+                  static_cast<unsigned long>(kGatewayPingIntervalMs / 1000));
+}
+
+void stopNetworkServices() {
+    stopGatewayPing();
+    if (otaStarted && !otaInProgress) {
+        ArduinoOTA.end();
+        otaStarted = false;
+        otaState = strlen(HANDSCANNER_OTA_PASSWORD) > 0 ? "waiting_for_wifi" : "disabled";
+    }
+    if (healthApiStarted) {
+        healthServer.stop();
+        healthApiStarted = false;
+    }
+}
+
+void configureStation() {
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.setAutoReconnect(true);
+}
+
+void beginStationConnection() {
+    Serial.printf("WiFi: connecting to %s\n", HANDSCANNER_WIFI_SSID);
+    WiFi.begin(HANDSCANNER_WIFI_SSID, HANDSCANNER_WIFI_PASSWORD);
+}
+
+void reconnectWifiRadio() {
+    if (otaInProgress) return;
+
+    radioReconnectRequested = false;
+    ++radioReconnectCount;
+    Serial.printf("WiFi: resetting radio after %u failed gateway probes (attempt %lu)\n",
+                  kFailedProbesBeforeRadioReset,
+                  static_cast<unsigned long>(radioReconnectCount));
+    stopNetworkServices();
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);
+    WiFi.mode(WIFI_OFF);
+    vTaskDelay(pdMS_TO_TICKS(250));
+    configureStation();
+    beginStationConnection();
+}
+
+void wifiEvent(arduino_event_id_t event, arduino_event_info_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        const wifi_err_reason_t reason =
+            static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
+        Serial.printf("WiFi: disconnected, reason %u (%s)\n", static_cast<unsigned int>(reason),
+                      WiFi.disconnectReasonName(reason));
+    } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+        Serial.printf("WiFi: connected, IP %s, gateway %s\n",
+                      WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str());
+    }
+}
 
 void startHealthApi() {
     if (healthApiStarted) return;
 
-    healthServer.on("/api/health", HTTP_GET, []() {
-        const esp_partition_t *running = esp_ota_get_running_partition();
-        const char *partition = running != nullptr ? running->label : "unknown";
+    if (!healthApiConfigured) {
+        healthServer.on("/api/health", HTTP_GET, []() {
+            const esp_partition_t *running = esp_ota_get_running_partition();
+            const char *partition = running != nullptr ? running->label : "unknown";
 
-        String body;
-        body.reserve(320);
-        body = "{\"status\":\"ok\",\"state\":\"";
-        body += otaInProgress ? "ota_updating" : "ready";
-        body += "\",\"version\":\"" HANDSCANNER_FIRMWARE_VERSION "\"";
-        body += ",\"uptime_ms\":" + String(millis());
-        body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
-        body += ",\"rssi_dbm\":" + String(WiFi.RSSI());
-        body += ",\"free_heap_bytes\":" + String(ESP.getFreeHeap());
-        body += ",\"ota_enabled\":";
-        body += strlen(HANDSCANNER_OTA_PASSWORD) > 0 ? "true" : "false";
-        body += ",\"ota_state\":\"" + String(otaState) + "\"";
-        body += ",\"ota_error\":" + String(lastOtaError);
-        body += ",\"ota_partition\":\"" + String(partition) + "\"}";
+            String body;
+            body.reserve(480);
+            body = "{\"status\":\"ok\",\"state\":\"";
+            body += otaInProgress ? "ota_updating" : "ready";
+            body += "\",\"version\":\"" HANDSCANNER_FIRMWARE_VERSION "\"";
+            body += ",\"uptime_ms\":" + String(millis());
+            body += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+            body += ",\"rssi_dbm\":" + String(WiFi.RSSI());
+            body += ",\"gateway\":\"" + WiFi.gatewayIP().toString() + "\"";
+            body += ",\"gateway_probe_failures\":" + String(failedGatewayProbes);
+            body += ",\"wifi_radio_reconnects\":" + String(radioReconnectCount);
+            body += ",\"wifi_sleep_enabled\":false";
+            body += ",\"free_heap_bytes\":" + String(ESP.getFreeHeap());
+            body += ",\"ota_enabled\":";
+            body += strlen(HANDSCANNER_OTA_PASSWORD) > 0 ? "true" : "false";
+            body += ",\"ota_state\":\"" + String(otaState) + "\"";
+            body += ",\"ota_error\":" + String(lastOtaError);
+            body += ",\"ota_partition\":\"" + String(partition) + "\"}";
 
-        healthServer.sendHeader("Cache-Control", "no-store");
-        healthServer.sendHeader("Access-Control-Allow-Origin", "*");
-        healthServer.send(200, "application/json", body);
-    });
+            healthServer.sendHeader("Cache-Control", "no-store");
+            healthServer.sendHeader("Access-Control-Allow-Origin", "*");
+            healthServer.send(200, "application/json", body);
+        });
+        healthApiConfigured = true;
+    }
     healthServer.begin();
     healthApiStarted = true;
     Serial.printf("HTTP API: http://%s/api/health\n", WiFi.localIP().toString().c_str());
@@ -70,10 +209,23 @@ void startOta() {
     ArduinoOTA.setRebootOnSuccess(true);
     ArduinoOTA.onStart([]() {
         otaInProgress = true;
+        otaUiReady = false;
         otaState = "updating";
         lastOtaError = 0;
         lastOtaPercent = 255;
-        Serial.println("OTA: update started");
+        radioReconnectRequested = false;
+        stopGatewayPing();
+        Serial.println("OTA: update requested; pausing game and blanking display");
+
+        const uint32_t waitStarted = millis();
+        while (!otaUiReady && millis() - waitStarted < kOtaUiReadyTimeoutMs) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (otaUiReady) {
+            Serial.println("OTA: display is black and game activity is paused");
+        } else {
+            Serial.println("OTA: warning - timed out waiting for display pause");
+        }
     });
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
         if (total == 0) return;
@@ -89,6 +241,7 @@ void startOta() {
     });
     ArduinoOTA.onError([](ota_error_t error) {
         otaInProgress = false;
+        otaUiReady = false;
         otaState = "failed";
         lastOtaError = static_cast<uint8_t>(error);
         Serial.printf("OTA: failed (%u)\n", static_cast<unsigned int>(error));
@@ -119,32 +272,6 @@ String sequenceJson(const SequenceMessage &message) {
     }
     result += ']';
     return result;
-}
-
-bool ensureWifi() {
-    if (strlen(HANDSCANNER_WIFI_SSID) == 0) {
-        return false;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        return true;
-    }
-
-    Serial.printf("WiFi: connecting to %s\n", HANDSCANNER_WIFI_SSID);
-    WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(true);
-    WiFi.begin(HANDSCANNER_WIFI_SSID, HANDSCANNER_WIFI_PASSWORD);
-    const uint32_t started = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - started < 15000) {
-        vTaskDelay(pdMS_TO_TICKS(250));
-    }
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi: connection timed out");
-        return false;
-    }
-
-    Serial.printf("WiFi: connected, IP %s\n", WiFi.localIP().toString().c_str());
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-    return true;
 }
 
 void sendSequence(const SequenceMessage &message) {
@@ -211,25 +338,47 @@ void pollRemoteCommand() {
 }
 
 void networkTask(void *) {
-    uint32_t lastConnectAttempt = millis() - 10000;
+    uint32_t lastConnectAttempt = millis();
     uint32_t lastPoll = millis();
     SequenceMessage message{};
 
+    WiFi.onEvent(wifiEvent);
+    configureStation();
+    beginStationConnection();
+
     for (;;) {
-        if (WiFi.status() != WL_CONNECTED && millis() - lastConnectAttempt >= 10000) {
-            lastConnectAttempt = millis();
-            ensureWifi();
+        bool connected = WiFi.status() == WL_CONNECTED;
+        if (connected != wifiWasConnected) {
+            wifiWasConnected = connected;
+            if (connected) {
+                configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+                startHealthApi();
+                startOta();
+                startGatewayPing();
+            } else {
+                stopNetworkServices();
+            }
         }
 
-        if (WiFi.status() == WL_CONNECTED) {
-            startHealthApi();
-            healthServer.handleClient();
-            startOta();
+        if (radioReconnectRequested && !otaInProgress) {
+            reconnectWifiRadio();
+            wifiWasConnected = false;
+            lastConnectAttempt = millis();
+            connected = false;
+        } else if (!connected && millis() - lastConnectAttempt >= kWifiReconnectIntervalMs) {
+            lastConnectAttempt = millis();
+            Serial.println("WiFi: requesting automatic station reconnect");
+            WiFi.reconnect();
+        }
+
+        if (connected) {
             if (otaStarted) ArduinoOTA.handle();
             if (otaInProgress) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
             }
+            healthServer.handleClient();
+            startGatewayPing();
 
             while (xQueueReceive(sequenceQueue, &message, 0) == pdTRUE) {
                 sendSequence(message);
@@ -250,6 +399,7 @@ bool networkBegin(QueueHandle_t remoteCommandQueue) {
     if (commandQueue == nullptr || sequenceQueue == nullptr) return false;
     if (strlen(HANDSCANNER_WIFI_SSID) == 0) {
         Serial.println("WiFi: disabled; copy include/secrets.example.h to include/secrets.h and configure it");
+        return true;
     }
     return xTaskCreate(networkTask, "handscanner-network", 8192, nullptr, 1, nullptr) == pdPASS;
 }
@@ -264,4 +414,8 @@ void networkSubmitSequence(const uint8_t *values, size_t count) {
 
 bool networkOtaInProgress() {
     return otaInProgress;
+}
+
+void networkConfirmOtaUiReady() {
+    otaUiReady = true;
 }

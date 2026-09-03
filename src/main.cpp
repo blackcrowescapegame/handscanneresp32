@@ -80,7 +80,9 @@ bool selected[5] = {};
 uint8_t pressCount = 0;
 bool solved = false;
 bool touchWasDown = false;
+bool otaUiSuspended = false;
 bool accessCheckPending = false;
+uint32_t otaSuspendedAt = 0;
 uint32_t accessCheckAt = 0;
 uint32_t resultShownAt = 0;
 uint32_t successStartedAt = 0;
@@ -329,6 +331,42 @@ void updateScan(uint32_t now) {
     display.flush();
     previousScanY = scanY;
 }
+
+void suspendUiForOta() {
+    otaUiSuspended = true;
+    otaSuspendedAt = millis();
+    touchWasDown = false;
+    audioStop();
+    display.fillScreen(RGB565_BLACK);
+    display.flush();
+    networkConfirmOtaUiReady();
+}
+
+void resumeUiAfterOtaFailure() {
+    const uint32_t now = millis();
+    const uint32_t pausedFor = now - otaSuspendedAt;
+    if (accessCheckPending) accessCheckAt += pausedFor;
+    if (resultState == ResultState::Denied) resultShownAt += pausedFor;
+    if (screenMode == ScreenMode::SuccessFade) successStartedAt += pausedFor;
+    lastFadeFrameAt = now;
+    lastScanFrameAt = now;
+    otaUiSuspended = false;
+
+    switch (screenMode) {
+        case ScreenMode::Normal:
+        case ScreenMode::SuccessFade:
+            drawNormalScreen();
+            break;
+        case ScreenMode::Blackout:
+            display.fillScreen(RGB565_BLACK);
+            display.flush();
+            break;
+        case ScreenMode::Hint:
+            drawImage(hintPixels());
+            break;
+    }
+    Serial.println("OTA: game resumed after failed/cancelled update");
+}
 }  // namespace
 
 void setup() {
@@ -375,12 +413,14 @@ void setup() {
 }
 
 void loop() {
-    // OTA erases and writes the inactive app partition. Avoid concurrent reads
-    // of the large flash-embedded UI assets until verification is complete.
+    // The OTA callback waits for this acknowledgement before receiving firmware,
+    // ensuring no display, audio, touch, or flash-backed game work overlaps it.
     if (networkOtaInProgress()) {
+        if (!otaUiSuspended) suspendUiForOta();
         delay(20);
         return;
     }
+    if (otaUiSuspended) resumeUiAfterOtaFailure();
 
     const uint32_t now = millis();
 

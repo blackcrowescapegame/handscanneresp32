@@ -11,3 +11,4 @@ enum class RemoteCommand : uint8_t {
 bool networkBegin(QueueHandle_t remoteCommandQueue);
 void networkSubmitSequence(const uint8_t *values, size_t count);
 bool networkOtaInProgress();
+void networkConfirmOtaUiReady();
