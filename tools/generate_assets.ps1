@@ -39,7 +39,7 @@ Invoke-Ffmpeg @(
 )
 Invoke-Ffmpeg @(
     "-i", (Join-Path $source "02_Liquidos_Hint_Belial.png"),
-    "-vf", "scale=1035:800:flags=lanczos,pad=1280:800:122:0:black,transpose=1,format=rgb24",
+    "-vf", "scale=800:1280:force_original_aspect_ratio=decrease:flags=lanczos,pad=800:1280:(ow-iw)/2:(oh-ih)/2:black,format=rgb24",
     "-frames:v", "1", $hintPng
 )
 
