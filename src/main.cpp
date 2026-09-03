@@ -339,6 +339,12 @@ void suspendUiForOta() {
     audioStop();
     display.fillScreen(RGB565_BLACK);
     display.flush();
+    delay(25);
+    display_cfg_backlight(false);
+    if (!dsiPanel.suspendRefresh()) {
+        Serial.println("OTA: warning - display DMA could not be suspended");
+    }
+    delay(25);
     networkConfirmOtaUiReady();
 }
 
@@ -365,6 +371,10 @@ void resumeUiAfterOtaFailure() {
             drawImage(hintPixels());
             break;
     }
+    if (!dsiPanel.resumeRefresh()) {
+        Serial.println("OTA: warning - display DMA could not be resumed");
+    }
+    display_cfg_backlight(true);
     Serial.println("OTA: game resumed after failed/cancelled update");
 }
 }  // namespace

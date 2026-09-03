@@ -43,6 +43,8 @@ public:
   bool begin(int16_t w, int16_t h, int32_t speed = GFX_NOT_DEFINED, const lcd_init_cmd_t *init_operations = NULL, size_t init_operations_len = GFX_NOT_DEFINED);
 
   uint16_t *getFrameBuffer();
+  bool suspendRefresh();
+  bool resumeRefresh();
 
 protected:
 private:

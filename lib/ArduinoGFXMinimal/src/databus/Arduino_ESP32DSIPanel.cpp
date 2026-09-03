@@ -72,7 +72,9 @@ bool Arduino_ESP32DSIPanel::begin(int16_t w, int16_t h, int32_t speed, const lcd
       .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,
       .dpi_clock_freq_mhz = speed / 1000000,
       .pixel_format = LCD_COLOR_PIXEL_FORMAT_RGB565,
-      .num_fbs = 2,
+      // This application draws into one persistent framebuffer. A second buffer
+      // doubles PSRAM/DMA traffic without ever being selected by the renderer.
+      .num_fbs = 1,
       .video_timing = {
           .h_size = w,
           .v_size = h,
@@ -118,6 +120,26 @@ uint16_t *Arduino_ESP32DSIPanel::getFrameBuffer()
   }
 
   return ((uint16_t *)frame_buffer);
+}
+
+bool Arduino_ESP32DSIPanel::suspendRefresh()
+{
+  if (!_panel_handle)
+  {
+    return false;
+  }
+  // The internal DSI pattern generator disables the DPI bridge, so the display
+  // DMA stops continuously reading the external-PSRAM framebuffer during OTA.
+  return esp_lcd_dpi_panel_set_pattern(_panel_handle, MIPI_DSI_PATTERN_BAR_VERTICAL) == ESP_OK;
+}
+
+bool Arduino_ESP32DSIPanel::resumeRefresh()
+{
+  if (!_panel_handle)
+  {
+    return false;
+  }
+  return esp_lcd_dpi_panel_set_pattern(_panel_handle, MIPI_DSI_PATTERN_NONE) == ESP_OK;
 }
 
 #endif // #if defined(ESP32) && (CONFIG_IDF_TARGET_ESP32P4)

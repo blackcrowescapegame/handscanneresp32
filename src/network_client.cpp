@@ -2,6 +2,7 @@
 
 #include <ArduinoOTA.h>
 #include <HTTPClient.h>
+#include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
@@ -34,6 +35,8 @@ volatile bool otaInProgress = false;
 volatile bool otaUiReady = false;
 uint8_t lastOtaPercent = 255;
 uint8_t lastOtaError = 0;
+uint8_t lastUpdateError = 0;
+String lastUpdateErrorMessage = "none";
 const char *otaState = "disabled";
 bool healthApiStarted = false;
 bool healthApiConfigured = false;
@@ -187,6 +190,8 @@ void startHealthApi() {
             body += strlen(HANDSCANNER_OTA_PASSWORD) > 0 ? "true" : "false";
             body += ",\"ota_state\":\"" + String(otaState) + "\"";
             body += ",\"ota_error\":" + String(lastOtaError);
+            body += ",\"ota_update_error\":" + String(lastUpdateError);
+            body += ",\"ota_update_error_message\":\"" + lastUpdateErrorMessage + "\"";
             body += ",\"ota_partition\":\"" + String(partition) + "\"}";
 
             healthServer.sendHeader("Cache-Control", "no-store");
@@ -212,6 +217,8 @@ void startOta() {
         otaUiReady = false;
         otaState = "updating";
         lastOtaError = 0;
+        lastUpdateError = 0;
+        lastUpdateErrorMessage = "none";
         lastOtaPercent = 255;
         radioReconnectRequested = false;
         stopGatewayPing();
@@ -244,7 +251,12 @@ void startOta() {
         otaUiReady = false;
         otaState = "failed";
         lastOtaError = static_cast<uint8_t>(error);
-        Serial.printf("OTA: failed (%u)\n", static_cast<unsigned int>(error));
+        lastUpdateError = Update.getError();
+        lastUpdateErrorMessage = Update.errorString();
+        Serial.printf("OTA: failed (%u), updater error %u (%s)\n",
+                      static_cast<unsigned int>(error),
+                      static_cast<unsigned int>(lastUpdateError),
+                      lastUpdateErrorMessage.c_str());
     });
     ArduinoOTA.begin();
     otaStarted = true;
