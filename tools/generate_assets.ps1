@@ -25,7 +25,7 @@ $hintPng = Join-Path $work "hint.png"
 Invoke-Ffmpeg @(
     "-i", (Join-Path $source "Background.png"),
     "-i", (Join-Path $source "Handprint.png"),
-    "-filter_complex", "[0:v]scale=1312:820:flags=lanczos,crop=1280:800:16:10,transpose=1[bg];[1:v]scale=760:760:flags=lanczos,colorchannelmixer=aa=0.8[hand];[bg][hand]overlay=20:260:format=auto,format=rgb24[out]",
+    "-filter_complex", "[0:v]scale=1312:880:flags=lanczos,crop=1280:800:16:23,transpose=1[bg];[1:v]scale=820:820:flags=lanczos,colorchannelmixer=aa=0.8[hand];[bg][hand]overlay=-10:230:format=auto,format=rgb24[out]",
     "-map", "[out]", "-frames:v", "1", $basePng
 )
 

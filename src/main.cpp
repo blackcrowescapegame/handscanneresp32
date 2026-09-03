@@ -13,6 +13,7 @@ namespace {
 constexpr int16_t kWidth = 800;
 constexpr int16_t kHeight = 1280;
 constexpr int16_t kTouchRadius = 35;
+constexpr int16_t kButtonRadius = 28;
 constexpr uint32_t kScanPeriodMs = 3000;
 constexpr uint32_t kScanFrameMs = 50;
 constexpr uint32_t kResultDelayMs = 500;
@@ -28,11 +29,11 @@ struct TouchTarget {
 };
 
 constexpr TouchTarget kTargets[5] = {
-    {130, 650},  // Thumb
-    {307, 333},
-    {426, 313},
-    {526, 352},
-    {681, 484},
+    {109, 651},  // Thumb
+    {300, 309},
+    {428, 287},
+    {536, 329},
+    {698, 471},
 };
 
 enum class ScreenMode : uint8_t {
@@ -110,7 +111,7 @@ void drawCenteredText(const char *text, int16_t centerY, uint16_t color, uint8_t
 void drawButtons() {
     constexpr uint16_t purple = 0x8010;
     for (uint8_t i = 0; i < 5; ++i) {
-        display.fillCircle(kTargets[i].x, kTargets[i].y, kTouchRadius, purple);
+        display.fillCircle(kTargets[i].x, kTargets[i].y, kButtonRadius, purple);
         if (selected[i]) {
             char value[2] = {static_cast<char>('0' + [&]() {
                                  for (uint8_t p = 0; p < pressCount; ++p) {
