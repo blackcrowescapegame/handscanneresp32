@@ -59,6 +59,9 @@ need a separate build target and must not be flashed with this binary.
 ### Install an update over Wi-Fi
 
 The dual-slot OTA partition table must first be installed once through USB.
+Both application slots deliberately fit below the 16 MB address boundary;
+although the board has 32 MB of physical flash, the precompiled Arduino
+ESP32-P4 runtime validates executable images through a 16 MB address window.
 After that first USB upload, confirm the serial log contains `OTA: ready` and
 run the deployment script. It reads the password from `include/secrets.h`
 without printing it and defaults to this unit's current IP, `192.168.40.57`:

@@ -1,6 +1,9 @@
 # Name,      Type, SubType,  Offset,     Size,      Flags
+# Keep both executable slots below 0x1000000. The precompiled Arduino ESP32-P4
+# runtime validates application images through its 16 MB flash address window,
+# even on this board's 32 MB physical flash.
 nvs,         data, nvs,      0x9000,     0x5000,
 otadata,     data, ota,      0xE000,     0x2000,
-ota_0,       app,  ota_0,    0x10000,    0xF00000,
-ota_1,       app,  ota_1,    0xF10000,   0xF00000,
-coredump,    data, coredump, 0x1E10000,  0x10000,
+ota_0,       app,  ota_0,    0x10000,    0x7F0000,
+ota_1,       app,  ota_1,    0x800000,   0x7F0000,
+coredump,    data, coredump, 0xFF0000,   0x10000,
