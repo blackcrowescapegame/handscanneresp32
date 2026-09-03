@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "app_config.h"
+#include "audio_engine.h"
 
 namespace {
 constexpr uint32_t kWifiReconnectIntervalMs = 10000;
@@ -44,8 +45,65 @@ bool wifiWasConnected = false;
 volatile uint8_t failedGatewayProbes = 0;
 volatile bool radioReconnectRequested = false;
 uint32_t radioReconnectCount = 0;
+bool rebootRequested = false;
+uint32_t rebootRequestedAt = 0;
 esp_ping_handle_t gatewayPing = nullptr;
 WebServer healthServer(HANDSCANNER_HEALTH_API_PORT);
+
+void sendJson(int status, const String &body) {
+    healthServer.sendHeader("Cache-Control", "no-store");
+    healthServer.sendHeader("Access-Control-Allow-Origin", "*");
+    healthServer.send(status, "application/json", body);
+}
+
+void handleVolumeRequest(const String &value) {
+    if (value.isEmpty() || value.length() > 3) {
+        sendJson(400, "{\"status\":\"error\",\"error\":\"volume must be between 0 and 100\"}");
+        return;
+    }
+    for (size_t i = 0; i < value.length(); ++i) {
+        if (!isDigit(value[i])) {
+            sendJson(400, "{\"status\":\"error\",\"error\":\"volume must be between 0 and 100\"}");
+            return;
+        }
+    }
+
+    const long volume = value.toInt();
+    if (volume < 0 || volume > 100) {
+        sendJson(400, "{\"status\":\"error\",\"error\":\"volume must be between 0 and 100\"}");
+        return;
+    }
+
+    if (!audioSetVolume(static_cast<uint8_t>(volume))) {
+        sendJson(503, "{\"status\":\"error\",\"error\":\"audio codec unavailable\"}");
+        return;
+    }
+
+    sendJson(200, String("{\"status\":\"ok\",\"volume\":") + audioGetVolume() + "}");
+}
+
+void handleUnknownRequest() {
+    constexpr char kVolumePrefix[] = "/api/volume/";
+    const String uri = healthServer.uri();
+    if ((healthServer.method() == HTTP_GET || healthServer.method() == HTTP_POST) &&
+        uri.startsWith(kVolumePrefix)) {
+        handleVolumeRequest(uri.substring(strlen(kVolumePrefix)));
+        return;
+    }
+
+    sendJson(404, "{\"status\":\"error\",\"error\":\"not found\"}");
+}
+
+void handleRebootRequest() {
+    if (otaInProgress) {
+        sendJson(409, "{\"status\":\"error\",\"error\":\"OTA update in progress\"}");
+        return;
+    }
+
+    rebootRequestedAt = millis();
+    rebootRequested = true;
+    sendJson(202, "{\"status\":\"ok\",\"state\":\"rebooting\"}");
+}
 
 void onGatewayPingSuccess(esp_ping_handle_t ping, void *) {
     uint32_t elapsedMs = 0;
@@ -186,6 +244,7 @@ void startHealthApi() {
             body += ",\"wifi_radio_reconnects\":" + String(radioReconnectCount);
             body += ",\"wifi_sleep_enabled\":false";
             body += ",\"free_heap_bytes\":" + String(ESP.getFreeHeap());
+            body += ",\"volume\":" + String(audioGetVolume());
             body += ",\"ota_enabled\":";
             body += strlen(HANDSCANNER_OTA_PASSWORD) > 0 ? "true" : "false";
             body += ",\"ota_state\":\"" + String(otaState) + "\"";
@@ -194,10 +253,11 @@ void startHealthApi() {
             body += ",\"ota_update_error_message\":\"" + lastUpdateErrorMessage + "\"";
             body += ",\"ota_partition\":\"" + String(partition) + "\"}";
 
-            healthServer.sendHeader("Cache-Control", "no-store");
-            healthServer.sendHeader("Access-Control-Allow-Origin", "*");
-            healthServer.send(200, "application/json", body);
+            sendJson(200, body);
         });
+        healthServer.on("/api/reboot", HTTP_GET, handleRebootRequest);
+        healthServer.on("/api/reboot", HTTP_POST, handleRebootRequest);
+        healthServer.onNotFound(handleUnknownRequest);
         healthApiConfigured = true;
     }
     healthServer.begin();
@@ -390,6 +450,15 @@ void networkTask(void *) {
                 continue;
             }
             healthServer.handleClient();
+            if (rebootRequested) {
+                if (millis() - rebootRequestedAt >= 250) {
+                    Serial.println("API: rebooting device");
+                    Serial.flush();
+                    ESP.restart();
+                }
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
             startGatewayPing();
 
             while (xQueueReceive(sequenceQueue, &message, 0) == pdTRUE) {

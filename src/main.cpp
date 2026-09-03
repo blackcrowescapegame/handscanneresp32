@@ -432,7 +432,7 @@ void loop() {
     }
     if (otaUiSuspended) resumeUiAfterOtaFailure();
 
-    const uint32_t now = millis();
+    uint32_t now = millis();
 
     RemoteCommand command;
     while (remoteCommands != nullptr && xQueueReceive(remoteCommands, &command, 0) == pdTRUE) {
@@ -443,6 +443,9 @@ void loop() {
 
     if (accessCheckPending && static_cast<int32_t>(now - accessCheckAt) >= 0) {
         checkAccess();
+        // checkAccess() records the fade start after this loop iteration's
+        // original timestamp. Refresh it to avoid unsigned subtraction wrap.
+        now = millis();
     }
 
     if (screenMode == ScreenMode::SuccessFade) {

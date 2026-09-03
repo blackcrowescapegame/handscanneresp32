@@ -30,9 +30,11 @@ Invoke-Ffmpeg @(
 )
 
 # CSS object-fit: cover for the skull and contain on black for the hint.
+# The source skull is already portrait, so crop it directly to the panel's
+# portrait frame. Rotating a landscape crop here made the skull appear sideways.
 Invoke-Ffmpeg @(
     "-i", (Join-Path $source "Skull.png"),
-    "-vf", "scale=1280:1774:flags=lanczos,crop=1280:800:0:487,transpose=1,format=rgb24",
+    "-vf", "scale=800:1280:force_original_aspect_ratio=increase:flags=lanczos,crop=800:1280,format=rgb24",
     "-frames:v", "1", $skullPng
 )
 Invoke-Ffmpeg @(

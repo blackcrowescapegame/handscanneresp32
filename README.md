@@ -92,7 +92,20 @@ curl.exe http://192.168.40.57/api/health
 Example response:
 
 ```json
-{"status":"ok","state":"ready","version":"1.1.0","uptime_ms":12345,"ip":"192.168.40.57","rssi_dbm":-52,"free_heap_bytes":180000,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_0"}
+{"status":"ok","state":"ready","version":"1.2.4","uptime_ms":12345,"ip":"192.168.40.57","rssi_dbm":-52,"free_heap_bytes":180000,"volume":80,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_0"}
+```
+
+Set the live speaker volume from 0 through 100. Both GET and POST are accepted:
+
+```powershell
+curl.exe http://192.168.40.57/api/volume/80
+```
+
+The setting lasts until the next reboot; startup volume is 80. Reboot the
+device with either GET or POST (POST is recommended for automation):
+
+```powershell
+curl.exe -X POST http://192.168.40.57/api/reboot
 ```
 
 ## Assets
@@ -104,8 +117,8 @@ the firmware. Regenerate them after editing the original PNG/MP3 files with:
 .\tools\generate_assets.ps1
 ```
 
-This requires `ffmpeg` on `PATH`. The 32 MB flash is divided into two 15 MB
-application slots so the approximately 7.7 MB firmware can be updated safely.
+This requires `ffmpeg` on `PATH`. The firmware uses two 8128 KB application
+slots below the 16 MB executable-address boundary so OTA activation is reliable.
 
 ## Source layout
 

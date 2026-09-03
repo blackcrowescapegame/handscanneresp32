@@ -26,6 +26,11 @@ struct AudioRequest {
 
 QueueHandle_t requestQueue = nullptr;
 bool ready = false;
+es8311_handle_t codecHandle = nullptr;
+uint8_t currentVolume = HANDSCANNER_AUDIO_VOLUME;
+
+static_assert(HANDSCANNER_AUDIO_VOLUME >= 0 && HANDSCANNER_AUDIO_VOLUME <= 100,
+              "HANDSCANNER_AUDIO_VOLUME must be between 0 and 100");
 
 esp_err_t initCodec() {
     es8311_handle_t codec = es8311_create(0, ES8311_ADDRESS_0);
@@ -43,8 +48,11 @@ esp_err_t initCodec() {
                         "audio", "ES8311 init failed");
     ESP_RETURN_ON_ERROR(es8311_microphone_config(codec, false), "audio",
                         "ES8311 microphone config failed");
-    ESP_RETURN_ON_ERROR(es8311_voice_volume_set(codec, HANDSCANNER_AUDIO_VOLUME, nullptr),
+    int appliedVolume = 0;
+    ESP_RETURN_ON_ERROR(es8311_voice_volume_set(codec, currentVolume, &appliedVolume),
                         "audio", "ES8311 volume failed");
+    currentVolume = static_cast<uint8_t>(appliedVolume);
+    codecHandle = codec;
     return ESP_OK;
 }
 
@@ -167,4 +175,24 @@ void audioStop() {
     const AudioRequest stopRequest{nullptr, 0, 0};
     xQueueOverwrite(requestQueue, &stopRequest);
     i2s_zero_dma_buffer(kI2sPort);
+}
+
+bool audioSetVolume(uint8_t volume) {
+    if (!ready || codecHandle == nullptr || volume > 100) return false;
+
+    int appliedVolume = 0;
+    const esp_err_t result =
+        es8311_voice_volume_set(codecHandle, static_cast<int>(volume), &appliedVolume);
+    if (result != ESP_OK) {
+        Serial.printf("Audio: volume change failed (%s)\n", esp_err_to_name(result));
+        return false;
+    }
+
+    currentVolume = static_cast<uint8_t>(appliedVolume);
+    Serial.printf("Audio: volume set to %u%%\n", static_cast<unsigned int>(currentVolume));
+    return true;
+}
+
+uint8_t audioGetVolume() {
+    return currentVolume;
 }
