@@ -1,21 +1,10 @@
 Import("env")
 
-# esptool 5.4 renders a Unicode progress bar. PlatformIO's Windows output
-# reader can still use a legacy code page, so suppress only that progress bar;
-# completion and verification messages remain visible.
+# Keep OTA authentication out of debug logs while leaving both USB and OTA
+# progress animations visible in the VS Code terminal.
 protocol = env.subst("$UPLOAD_PROTOCOL")
 
-if protocol == "esptool":
-    flags = list(env.get("UPLOADERFLAGS", []))
-    try:
-        command_index = flags.index("write-flash")
-    except ValueError:
-        command_index = -1
-
-    if command_index >= 0 and "--no-progress" not in flags:
-        flags.insert(command_index + 1, "--no-progress")
-        env.Replace(UPLOADERFLAGS=flags)
-elif protocol == "espota":
+if protocol == "espota":
     # pioarduino enables espota debug output by default. Besides producing a
     # very large per-chunk log, that output includes the plaintext OTA auth
     # argument. Disable debug output but retain the safe progress animation.

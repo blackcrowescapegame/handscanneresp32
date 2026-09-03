@@ -28,11 +28,11 @@ struct TouchTarget {
 };
 
 constexpr TouchTarget kTargets[5] = {
-    {128, 635},  // Thumb
-    {317, 349},
-    {450, 334},
-    {554, 349},
-    {695, 498},
+    {130, 650},  // Thumb
+    {307, 333},
+    {426, 313},
+    {526, 352},
+    {681, 484},
 };
 
 enum class ScreenMode : uint8_t {
