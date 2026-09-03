@@ -18,10 +18,10 @@ if protocol == "esptool":
 elif protocol == "espota":
     # pioarduino enables espota debug output by default. Besides producing a
     # very large per-chunk log, that output includes the plaintext OTA auth
-    # argument. Keep OTA output quiet and credentials out of the terminal.
+    # argument. Disable debug output but retain the safe progress animation.
     flags = [
         flag
         for flag in list(env.get("UPLOADERFLAGS", []))
-        if flag not in ("-d", "--debug", "-r", "--progress")
+        if flag not in ("-d", "--debug")
     ]
     env.Replace(UPLOADERFLAGS=flags)

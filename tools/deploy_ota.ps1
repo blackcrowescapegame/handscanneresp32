@@ -29,17 +29,18 @@ try {
         if (-not $BuildOnly) {
             $arguments += @("-t", "upload", "--upload-port", $Target)
         }
-        $reportedFailure = $false
-        & pio @arguments 2>&1 | ForEach-Object {
-            $line = $_.ToString()
-            if ($line -match 'Could Not Activate|OTA: failed|Unexpected response') {
-                $reportedFailure = $true
-            }
-            Write-Output $line
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            # Windows PowerShell 5 wraps any native stderr line (including
+            # compiler warnings) in a NativeCommandError when the global
+            # preference is Stop. Let PlatformIO stream directly to the console
+            # so espota's carriage-return progress animation remains visible.
+            $ErrorActionPreference = "Continue"
+            & pio @arguments
+            $exitCode = $LASTEXITCODE
         }
-        $exitCode = $LASTEXITCODE
-        if ($reportedFailure -and $exitCode -eq 0) {
-            $exitCode = 1
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
         }
         exit $exitCode
     }
