@@ -37,7 +37,19 @@
 #define HANDSCANNER_AUDIO_VOLUME 90
 #endif
 
+#ifndef HANDSCANNER_OTA_HOSTNAME
+#define HANDSCANNER_OTA_HOSTNAME "handscanner"
+#endif
+
+// OTA remains disabled until a non-empty password is defined in secrets.h.
+#ifndef HANDSCANNER_OTA_PASSWORD
+#define HANDSCANNER_OTA_PASSWORD ""
+#endif
+
+#ifndef HANDSCANNER_OTA_PORT
+#define HANDSCANNER_OTA_PORT 3232
+#endif
+
 // Landscape rotation. 1 places the long edge horizontally with the board's
 // native top on the left; use 3 and update transformTouch() if mounted opposite.
 #define HANDSCANNER_DISPLAY_ROTATION 1
-

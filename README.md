@@ -17,6 +17,7 @@ Wi-Fi interface.
 - remote command `2`: full-screen blackout
 - remote command `3`: full-screen Belial hint
 - skull fade on a successful solution and two-second reset after denial
+- authenticated Arduino OTA firmware updates over Wi-Fi
 
 ## Configure
 
@@ -30,6 +31,9 @@ Set the Wi-Fi SSID, password, and Home Assistant long-lived access token in
 `include/secrets.h`. The two API URLs already default to the values used by
 the HTML implementation and can also be overridden there. `secrets.h` is
 ignored by Git.
+
+Set `HANDSCANNER_OTA_PASSWORD` in the same file to enable OTA. OTA stays
+disabled when that value is empty.
 
 The ESP32-C6 coprocessor must contain Waveshare's compatible hosted Wi-Fi
 firmware. A board still running its factory firmware normally already has it.
@@ -51,6 +55,29 @@ The default environment targets current ESP32-P4 revision 3.x silicon, as
 recommended by Waveshare for current boards. ESP32-P4 revisions before 3.0
 need a separate build target and must not be flashed with this binary.
 
+### Install an update over Wi-Fi
+
+The dual-slot OTA partition table must first be installed once through USB.
+After that first USB upload, confirm the serial log contains `OTA: ready` and
+note the device IP address. In PowerShell, set the same password used in
+`include/secrets.h`, then upload with the OTA environment:
+
+```powershell
+$env:HANDSCANNER_OTA_PASSWORD = "your-ota-password"
+pio run -e waveshare-esp32-p4-10-1-ota -t upload
+```
+
+The default OTA address is `handscanner.local`. If Windows cannot resolve that
+mDNS name, supply the IP printed in the serial log:
+
+```powershell
+pio run -e waveshare-esp32-p4-10-1-ota -t upload --upload-port 192.168.1.50
+```
+
+Each OTA update is written to the inactive slot, verified, selected for the
+next boot, and then activated by an automatic restart. A USB upload remains
+available as the recovery path.
+
 ## Assets
 
 The RGB565 UI screens and 16 kHz mono PCM clips under `data/` are embedded in
@@ -60,15 +87,16 @@ the firmware. Regenerate them after editing the original PNG/MP3 files with:
 .\tools\generate_assets.ps1
 ```
 
-This requires `ffmpeg` on `PATH`. The generated firmware uses a no-OTA,
-32 MB flash partition because the three full-screen native bitmaps occupy
-about 6 MB.
+This requires `ffmpeg` on `PATH`. The 32 MB flash is divided into two 15 MB
+application slots so the approximately 7.7 MB firmware can be updated safely.
 
 ## Source layout
 
 - `src/main.cpp`: game state, rendering, touch, and remote-command handling
 - `src/network_client.cpp`: Wi-Fi, API POST, time sync, and command polling
 - `src/audio_engine.cpp`: ES8311/I2S PCM playback task
+- `tools/platformio_pre.py`: Windows toolchain path and pinned esptool setup
+- `tools/platformio_post.py`: Windows-safe esptool progress configuration
 - `lib/WaveshareDisplays/`: first-party Waveshare display/touch support
 - `lib/ArduinoGFXMinimal/`: Waveshare-tested ESP32-P4 DSI subset of Arduino_GFX
 - `lib/ES8311/`: first-party ES8311 codec driver

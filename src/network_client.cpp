@@ -1,5 +1,6 @@
 #include "network_client.h"
 
+#include <ArduinoOTA.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <time.h>
@@ -19,6 +20,42 @@ String lastUserInput;
 String lastChanged;
 String lastReported;
 String lastUpdated;
+bool otaStarted = false;
+bool otaInProgress = false;
+uint8_t lastOtaPercent = 255;
+
+void startOta() {
+    if (otaStarted || strlen(HANDSCANNER_OTA_PASSWORD) == 0) return;
+
+    ArduinoOTA.setHostname(HANDSCANNER_OTA_HOSTNAME);
+    ArduinoOTA.setPort(HANDSCANNER_OTA_PORT);
+    ArduinoOTA.setPassword(HANDSCANNER_OTA_PASSWORD);
+    ArduinoOTA.setRebootOnSuccess(true);
+    ArduinoOTA.onStart([]() {
+        otaInProgress = true;
+        lastOtaPercent = 255;
+        Serial.println("OTA: update started");
+    });
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        if (total == 0) return;
+        const uint8_t percent = static_cast<uint8_t>((progress * 100ULL) / total);
+        if (percent != lastOtaPercent && percent % 10 == 0) {
+            lastOtaPercent = percent;
+            Serial.printf("OTA: %u%%\n", percent);
+        }
+    });
+    ArduinoOTA.onEnd([]() {
+        Serial.println("OTA: update complete; rebooting");
+    });
+    ArduinoOTA.onError([](ota_error_t error) {
+        otaInProgress = false;
+        Serial.printf("OTA: failed (%u)\n", static_cast<unsigned int>(error));
+    });
+    ArduinoOTA.begin();
+    otaStarted = true;
+    Serial.printf("OTA: ready at %s.local:%u\n", HANDSCANNER_OTA_HOSTNAME,
+                  static_cast<unsigned int>(HANDSCANNER_OTA_PORT));
+}
 
 String isoTimestamp() {
     time_t now = time(nullptr);
@@ -142,6 +179,13 @@ void networkTask(void *) {
         }
 
         if (WiFi.status() == WL_CONNECTED) {
+            startOta();
+            if (otaStarted) ArduinoOTA.handle();
+            if (otaInProgress) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+
             while (xQueueReceive(sequenceQueue, &message, 0) == pdTRUE) {
                 sendSequence(message);
             }
@@ -172,4 +216,3 @@ void networkSubmitSequence(const uint8_t *values, size_t count) {
     memcpy(message.values, values, message.count);
     xQueueSend(sequenceQueue, &message, 0);
 }
-
