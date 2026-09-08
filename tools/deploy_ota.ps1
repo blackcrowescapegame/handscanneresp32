@@ -1,6 +1,9 @@
 param(
     [Parameter(Position = 0)]
-    [string]$Target = "192.168.40.57",
+    [string]$Target = "192.168.70.115",
+
+    [Parameter(Position = 1)]
+    [string]$VerifyTarget = "192.168.70.115",
 
     [switch]$BuildOnly
 )
@@ -64,12 +67,12 @@ try {
             exit $exitCode
         }
 
-        Write-Host "Verifying firmware $expectedVersion at http://$Target/api/health ..."
+        Write-Host "Verifying firmware $expectedVersion at http://$VerifyTarget/api/health ..."
         $deadline = (Get-Date).AddSeconds(60)
         $lastHealth = $null
         while ((Get-Date) -lt $deadline) {
             try {
-                $lastHealth = Invoke-RestMethod -Uri "http://$Target/api/health" -TimeoutSec 3
+                $lastHealth = Invoke-RestMethod -Uri "http://$VerifyTarget/api/health" -TimeoutSec 3
                 $versionChanged = $null -eq $beforeHealth -or $beforeHealth.version -ne $expectedVersion
                 $partitionChanged = $null -ne $beforeHealth -and `
                     $beforeHealth.ota_partition -ne $lastHealth.ota_partition

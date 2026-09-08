@@ -187,6 +187,25 @@ void configureStation() {
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
+
+    IPAddress localIp;
+    IPAddress gateway;
+    IPAddress subnet;
+    IPAddress dns;
+    if (!localIp.fromString(HANDSCANNER_WIFI_LOCAL_IP) ||
+        !gateway.fromString(HANDSCANNER_WIFI_GATEWAY) ||
+        !subnet.fromString(HANDSCANNER_WIFI_SUBNET) ||
+        !dns.fromString(HANDSCANNER_WIFI_DNS)) {
+        Serial.println("WiFi: invalid static IPv4 configuration");
+        return;
+    }
+    if (!WiFi.config(localIp, gateway, subnet, dns)) {
+        Serial.println("WiFi: failed to apply static IPv4 configuration");
+        return;
+    }
+    Serial.printf("WiFi: static IP %s, gateway %s, subnet %s, DNS %s\n",
+                  localIp.toString().c_str(), gateway.toString().c_str(),
+                  subnet.toString().c_str(), dns.toString().c_str());
 }
 
 void beginStationConnection() {
@@ -321,8 +340,8 @@ void startOta() {
     ArduinoOTA.begin();
     otaStarted = true;
     otaState = "ready";
-    Serial.printf("OTA: ready at %s.local:%u\n", HANDSCANNER_OTA_HOSTNAME,
-                  static_cast<unsigned int>(HANDSCANNER_OTA_PORT));
+    Serial.printf("OTA: ready at %s:%u (%s.local)\n", WiFi.localIP().toString().c_str(),
+                  static_cast<unsigned int>(HANDSCANNER_OTA_PORT), HANDSCANNER_OTA_HOSTNAME);
 }
 
 String isoTimestamp() {

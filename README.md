@@ -19,6 +19,7 @@ Wi-Fi interface.
 - skull fade on a successful solution and two-second reset after denial
 - authenticated Arduino OTA firmware updates over Wi-Fi
 - read-only JSON health/version API at `/api/health`
+- fixed LAN address `192.168.70.115`
 
 ## Configure
 
@@ -35,6 +36,12 @@ ignored by Git.
 
 Set `HANDSCANNER_OTA_PASSWORD` in the same file to enable OTA. OTA stays
 disabled when that value is empty.
+
+The firmware uses the fixed address `192.168.70.115`, gateway and DNS
+`192.168.70.1`, and subnet mask `255.255.255.0`. The corresponding
+`HANDSCANNER_WIFI_*` values can be overridden in `include/secrets.h` when the
+LAN configuration differs. Reserve or exclude `192.168.70.115` in the
+router's DHCP configuration to prevent another device receiving that address.
 
 The ESP32-C6 coprocessor must contain Waveshare's compatible hosted Wi-Fi
 firmware. A board still running its factory firmware normally already has it.
@@ -64,13 +71,23 @@ although the board has 32 MB of physical flash, the precompiled Arduino
 ESP32-P4 runtime validates executable images through a 16 MB address window.
 After that first USB upload, confirm the serial log contains `OTA: ready` and
 run the deployment script. It reads the password from `include/secrets.h`
-without printing it and defaults to this unit's current IP, `192.168.40.57`:
+without printing it and targets this unit's fixed IP, `192.168.70.115`:
 
 ```bat
 deployOTA.cmd
 ```
 
-Pass another IP or mDNS hostname as the first argument if DHCP changes it:
+An explicit upload target can still be passed as the first argument. If the
+firmware's fixed address was overridden, pass its address as both the upload
+and post-reboot verification targets:
+
+```bat
+deployOTA.cmd 192.168.70.120 192.168.70.120
+```
+
+For the one-time migration from the previous address, pass the device's old
+address as the upload target. The script uploads there, then verifies the
+rebooted firmware at the new fixed address:
 
 ```bat
 deployOTA.cmd 192.168.40.57
@@ -86,26 +103,26 @@ Increment `custom_firmware_version` in `platformio.ini` when preparing a new
 release. The running device reports that version and its active OTA slot:
 
 ```powershell
-curl.exe http://192.168.40.57/api/health
+curl.exe http://192.168.70.115/api/health
 ```
 
 Example response:
 
 ```json
-{"status":"ok","state":"ready","version":"1.2.4","uptime_ms":12345,"ip":"192.168.40.57","rssi_dbm":-52,"free_heap_bytes":180000,"volume":80,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_0"}
+{"status":"ok","state":"ready","version":"1.2.6","uptime_ms":12345,"ip":"192.168.70.115","rssi_dbm":-52,"free_heap_bytes":180000,"volume":80,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_0"}
 ```
 
 Set the live speaker volume from 0 through 100. Both GET and POST are accepted:
 
 ```powershell
-curl.exe http://192.168.40.57/api/volume/80
+curl.exe http://192.168.70.115/api/volume/80
 ```
 
 The setting lasts until the next reboot; startup volume is 80. Reboot the
 device with either GET or POST (POST is recommended for automation):
 
 ```powershell
-curl.exe -X POST http://192.168.40.57/api/reboot
+curl.exe -X POST http://192.168.70.115/api/reboot
 ```
 
 ## Assets
