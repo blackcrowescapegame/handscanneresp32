@@ -8,7 +8,17 @@ enum class RemoteCommand : uint8_t {
     ShowHint = 3,
 };
 
+enum class SequenceReportState : uint8_t {
+    Idle,
+    Pending,
+    InFlight,
+    Acknowledged,
+    Failed,
+};
+
 bool networkBegin(QueueHandle_t remoteCommandQueue);
-void networkSubmitSequence(const uint8_t *values, size_t count);
+bool networkSubmitSequence(const uint8_t *values, size_t count);
+SequenceReportState networkSequenceReportState();
+void networkAcknowledgeRemoteCommand(RemoteCommand command);
 bool networkOtaInProgress();
 void networkConfirmOtaUiReady();

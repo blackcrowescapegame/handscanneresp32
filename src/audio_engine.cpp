@@ -22,12 +22,16 @@ struct AudioRequest {
     const uint8_t *data;
     size_t length;
     uint8_t repeats;
+    uint32_t playbackId;
 };
 
 QueueHandle_t requestQueue = nullptr;
 bool ready = false;
 es8311_handle_t codecHandle = nullptr;
 uint8_t currentVolume = HANDSCANNER_AUDIO_VOLUME;
+portMUX_TYPE playbackMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t nextPlaybackId = 1;
+uint32_t completedPlaybackId = 0;
 
 static_assert(HANDSCANNER_AUDIO_VOLUME >= 0 && HANDSCANNER_AUDIO_VOLUME <= 100,
               "HANDSCANNER_AUDIO_VOLUME must be between 0 and 100");
@@ -97,6 +101,9 @@ void audioTask(void *) {
             }
         }
         i2s_zero_dma_buffer(kI2sPort);
+        portENTER_CRITICAL(&playbackMux);
+        completedPlaybackId = request.playbackId;
+        portEXIT_CRITICAL(&playbackMux);
     }
 }
 }  // namespace
@@ -163,16 +170,37 @@ bool audioBegin() {
 }
 
 void audioPlay(EmbeddedClip clip, uint8_t repeats) {
+    audioPlayTracked(clip, repeats);
+}
+
+uint32_t audioPlayTracked(EmbeddedClip clip, uint8_t repeats) {
     if (!ready || clip.data == nullptr || clip.length < sizeof(int16_t) || repeats == 0) {
-        return;
+        return 0;
     }
-    const AudioRequest request{clip.data, clip.length, repeats};
+    portENTER_CRITICAL(&playbackMux);
+    const uint32_t playbackId = nextPlaybackId++;
+    if (nextPlaybackId == 0) nextPlaybackId = 1;
+    portEXIT_CRITICAL(&playbackMux);
+    const AudioRequest request{clip.data, clip.length, repeats, playbackId};
     xQueueOverwrite(requestQueue, &request);
+    return playbackId;
+}
+
+bool audioPlaybackComplete(uint32_t playbackId) {
+    if (playbackId == 0) return true;
+    portENTER_CRITICAL(&playbackMux);
+    const bool complete = completedPlaybackId == playbackId;
+    portEXIT_CRITICAL(&playbackMux);
+    return complete;
 }
 
 void audioStop() {
     if (!ready || requestQueue == nullptr) return;
-    const AudioRequest stopRequest{nullptr, 0, 0};
+    portENTER_CRITICAL(&playbackMux);
+    const uint32_t playbackId = nextPlaybackId++;
+    if (nextPlaybackId == 0) nextPlaybackId = 1;
+    portEXIT_CRITICAL(&playbackMux);
+    const AudioRequest stopRequest{nullptr, 0, 0, playbackId};
     xQueueOverwrite(requestQueue, &stopRequest);
     i2s_zero_dma_buffer(kI2sPort);
 }

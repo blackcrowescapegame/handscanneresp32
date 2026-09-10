@@ -12,6 +12,7 @@
 // #define HANDSCANNER_WIFI_DNS "192.168.70.1"
 // #define HANDSCANNER_HA_EVENT_URL "http://192.168.70.113:8123/api/events/bc_custom_event"
 // #define HANDSCANNER_RESET_URL "http://192.168.70.113:1880/endpoint/resetHandScanner"
+// #define HANDSCANNER_HINT_ACK_URL "http://192.168.70.113:1880/endpoint/handscannerHintAck"
 // #define HANDSCANNER_RESET_POLL_MS 3000UL
 // #define HANDSCANNER_OTA_HOSTNAME "handscanner"
 // #define HANDSCANNER_OTA_PORT 3232

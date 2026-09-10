@@ -11,14 +11,19 @@ Wi-Fi interface.
 - animated scan line and five capacitive-touch targets
 - the original solution, `3, 2, 4, 5, 1`
 - finger, access-granted, access-denied, and three-play reset-riser sounds
-- Home Assistant event POST with the original `state_changed` payload
+- serialized result pipeline: sound, full-screen result transition, then the
+  Home Assistant `state_changed` event POST
+- retained Home Assistant reports that are cleared only after a 2xx response
 - reset endpoint polling every 3000 ms by default
 - remote command `1`: reset and play the riser three times
 - remote command `2`: full-screen blackout
 - remote command `3`: full-screen Belial hint
 - skull fade on a successful solution and two-second reset after denial
 - authenticated Arduino OTA firmware updates over Wi-Fi
-- read-only JSON health/version API at `/api/health`
+- durable command-3 delivery with a device acknowledgement after the hint is drawn
+- guarded 2.5-second outbound HTTP requests and automatic recovery restarts
+- JSON health/version API at `/api/health`, including reset, watchdog, heap,
+  PSRAM, Wi-Fi recovery, HTTP, and Home Assistant reporting diagnostics
 - fixed LAN address `192.168.70.115`
 
 ## Configure
@@ -109,7 +114,7 @@ curl.exe http://192.168.70.115/api/health
 Example response:
 
 ```json
-{"status":"ok","state":"ready","version":"1.2.6","uptime_ms":12345,"ip":"192.168.70.115","rssi_dbm":-52,"free_heap_bytes":180000,"volume":80,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_0"}
+{"status":"ok","state":"ready","version":"1.3.0","uptime_ms":12345,"ip":"192.168.70.115","rssi_dbm":-52,"reset_reason":"software","unexpected_reset_count":0,"free_heap_bytes":180000,"min_free_heap_bytes":170000,"free_psram_bytes":12000000,"http_in_flight":false,"ha_report_state":"idle","volume":80,"ota_enabled":true,"ota_state":"ready","ota_error":0,"ota_partition":"ota_1"}
 ```
 
 Set the live speaker volume from 0 through 100. Both GET and POST are accepted:
@@ -124,6 +129,15 @@ device with either GET or POST (POST is recommended for automation):
 ```powershell
 curl.exe -X POST http://192.168.70.115/api/reboot
 ```
+
+The network task is subscribed to a 10-second task watchdog. A failed critical
+Home Assistant or hint-acknowledgement request triggers a controlled restart;
+three consecutive command-poll failures or 60 seconds without Wi-Fi do the
+same. Before restarting after a failed Home Assistant POST, the five-number
+sequence is stored in NVS and retried after boot. Command `3` is acknowledged
+at `/endpoint/handscannerHintAck` only after the full-screen hint has been
+drawn, so Node-RED can keep that one device-specific hint pending until it is
+actually consumed.
 
 ## Assets
 

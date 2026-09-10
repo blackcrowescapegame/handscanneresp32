@@ -49,6 +49,13 @@ enum class ResultState : uint8_t {
     Denied,
 };
 
+enum class OutcomeStage : uint8_t {
+    Idle,
+    WaitingForAudio,
+    ShowingVisual,
+    Reporting,
+};
+
 Arduino_ESP32DSIPanel dsiPanel(
     display_cfg.hsync_pulse_width,
     display_cfg.hsync_back_porch,
@@ -89,6 +96,12 @@ uint32_t successStartedAt = 0;
 uint32_t lastFadeFrameAt = 0;
 uint32_t lastScanFrameAt = 0;
 int16_t previousScanY = -1;
+OutcomeStage outcomeStage = OutcomeStage::Idle;
+bool outcomeCorrect = false;
+uint8_t outcomeInput[5] = {};
+uint8_t outcomeInputCount = 0;
+uint32_t outcomeAudioId = 0;
+uint32_t outcomeVisualStartedAt = 0;
 
 const uint16_t *basePixels() { return reinterpret_cast<const uint16_t *>(base_start); }
 const uint16_t *skullPixels() { return reinterpret_cast<const uint16_t *>(skull_start); }
@@ -156,6 +169,8 @@ void resetGame(bool playRiser) {
     accessCheckPending = false;
     resultState = ResultState::None;
     screenMode = ScreenMode::Normal;
+    outcomeStage = OutcomeStage::Idle;
+    outcomeAudioId = 0;
     drawNormalScreen();
     if (playRiser) audioPlay(riserClip(), 3);
 }
@@ -176,6 +191,7 @@ void applyRemoteCommand(RemoteCommand command) {
             Serial.println("Game: showing Belial hint");
             screenMode = ScreenMode::Hint;
             drawImage(hintPixels());
+            networkAcknowledgeRemoteCommand(command);
             break;
     }
 }
@@ -200,7 +216,8 @@ bool transformTouch(uint16_t rawX, uint16_t rawY, int16_t &x, int16_t &y) {
 }
 
 void onFingerPressed(uint8_t finger) {
-    if (solved || screenMode != ScreenMode::Normal || finger < 1 || finger > 5 ||
+    if (solved || outcomeStage != OutcomeStage::Idle || screenMode != ScreenMode::Normal ||
+        finger < 1 || finger > 5 ||
         selected[finger - 1] || pressCount >= 5) {
         return;
     }
@@ -218,7 +235,8 @@ void onFingerPressed(uint8_t finger) {
 }
 
 void pollTouch() {
-    if (touch == nullptr || screenMode != ScreenMode::Normal || solved) return;
+    if (touch == nullptr || screenMode != ScreenMode::Normal || solved ||
+        outcomeStage != OutcomeStage::Idle) return;
 
     uint16_t rawX[5] = {};
     uint16_t rawY[5] = {};
@@ -249,23 +267,18 @@ bool correctSequence() {
 
 void checkAccess() {
     accessCheckPending = false;
-    networkSubmitSequence(userInput, pressCount);
+    outcomeCorrect = correctSequence();
+    outcomeInputCount = pressCount;
+    memcpy(outcomeInput, userInput, sizeof(outcomeInput));
+    outcomeStage = OutcomeStage::WaitingForAudio;
 
-    if (correctSequence()) {
+    if (outcomeCorrect) {
         solved = true;
-        resultState = ResultState::Granted;
-        audioPlay(grantedClip());
-        drawNormalScreen();
-        screenMode = ScreenMode::SuccessFade;
-        successStartedAt = millis();
-        lastFadeFrameAt = 0;
-        Serial.println("Game: ACCESS GRANTED");
+        outcomeAudioId = audioPlayTracked(grantedClip());
+        Serial.println("Game: correct sequence; playing grant audio");
     } else {
-        resultState = ResultState::Denied;
-        resultShownAt = millis();
-        audioPlay(deniedClip());
-        drawNormalScreen();
-        Serial.println("Game: ACCESS DENIED");
+        outcomeAudioId = audioPlayTracked(deniedClip());
+        Serial.println("Game: incorrect sequence; playing denial audio");
     }
 }
 
@@ -277,15 +290,15 @@ uint16_t blend565(uint16_t from, uint16_t to, uint8_t alpha) {
     return static_cast<uint16_t>((r << 11) | (g << 5) | b);
 }
 
-void updateSuccessFade(uint32_t now) {
-    if (now - lastFadeFrameAt < kFadeFrameMs) return;
+bool updateSuccessFade(uint32_t now) {
+    if (now - lastFadeFrameAt < kFadeFrameMs) return false;
     lastFadeFrameAt = now;
 
     const uint32_t elapsed = now - successStartedAt;
     if (elapsed >= kFadeHalfMs * 2) {
         screenMode = ScreenMode::Normal;
         drawNormalScreen();
-        return;
+        return true;
     }
 
     uint8_t alpha;
@@ -297,7 +310,7 @@ void updateSuccessFade(uint32_t now) {
 
     if (blendBuffer == nullptr) {
         drawImage(alpha >= 128 ? skullPixels() : basePixels());
-        return;
+        return false;
     }
 
     constexpr size_t pixelCount = static_cast<size_t>(kWidth) * kHeight;
@@ -308,6 +321,63 @@ void updateSuccessFade(uint32_t now) {
     }
     display.draw16bitRGBBitmap(0, 0, blendBuffer, kWidth, kHeight);
     display.flush();
+    return false;
+}
+
+void beginOutcomeVisual(uint32_t now) {
+    outcomeVisualStartedAt = now;
+    if (outcomeCorrect) {
+        resultState = ResultState::Granted;
+        drawNormalScreen();
+        screenMode = ScreenMode::SuccessFade;
+        successStartedAt = now;
+        lastFadeFrameAt = 0;
+        Serial.println("Game: grant audio complete; starting full-screen transition");
+    } else {
+        resultState = ResultState::Denied;
+        resultShownAt = now;
+        drawNormalScreen();
+        Serial.println("Game: denial audio complete; showing denial result");
+    }
+    outcomeStage = OutcomeStage::ShowingVisual;
+}
+
+void submitOutcomeReport() {
+    if (!networkSubmitSequence(outcomeInput, outcomeInputCount)) {
+        Serial.println("API: report queue busy; retrying");
+        return;
+    }
+    outcomeStage = OutcomeStage::Reporting;
+    Serial.println("API: visual complete; queued Home Assistant event");
+}
+
+void updateOutcome(uint32_t now) {
+    switch (outcomeStage) {
+        case OutcomeStage::Idle:
+            return;
+        case OutcomeStage::WaitingForAudio:
+            if (audioPlaybackComplete(outcomeAudioId)) beginOutcomeVisual(now);
+            return;
+        case OutcomeStage::ShowingVisual:
+            if (outcomeCorrect) {
+                if (updateSuccessFade(now)) submitOutcomeReport();
+            } else if (now - outcomeVisualStartedAt >= kDeniedDurationMs) {
+                submitOutcomeReport();
+            }
+            return;
+        case OutcomeStage::Reporting:
+            if (networkSequenceReportState() == SequenceReportState::Acknowledged) {
+                Serial.println(outcomeCorrect
+                                   ? "Game: ACCESS GRANTED acknowledged by Home Assistant"
+                                   : "Game: denial event acknowledged by Home Assistant");
+                if (outcomeCorrect) {
+                    outcomeStage = OutcomeStage::Idle;
+                } else {
+                    resetGame(false);
+                }
+            }
+            return;
+    }
 }
 
 void updateScan(uint32_t now) {
@@ -448,14 +518,11 @@ void loop() {
         now = millis();
     }
 
-    if (screenMode == ScreenMode::SuccessFade) {
-        updateSuccessFade(now);
-    } else if (screenMode == ScreenMode::Normal) {
-        if (resultState == ResultState::Denied && now - resultShownAt >= kDeniedDurationMs) {
-            resetGame(false);
-        } else {
-            updateScan(now);
-        }
+    updateOutcome(now);
+
+    if (screenMode == ScreenMode::Normal &&
+        (outcomeStage == OutcomeStage::Idle || outcomeStage == OutcomeStage::WaitingForAudio)) {
+        updateScan(now);
     }
 
     delay(5);
