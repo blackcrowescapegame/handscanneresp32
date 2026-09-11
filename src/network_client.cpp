@@ -9,7 +9,6 @@
 #include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
-#include <esp_task_wdt.h>
 #include <ping/ping_sock.h>
 #include <time.h>
 
@@ -71,7 +70,6 @@ uint32_t recoveryRestartCount = 0;
 uint32_t unexpectedResetCount = 0;
 uint32_t bootCount = 0;
 esp_reset_reason_t bootResetReason = ESP_RST_UNKNOWN;
-bool networkWatchdogEnabled = false;
 bool httpRequestInFlight = false;
 String httpRequestKind = "none";
 uint32_t httpRequestStartedAt = 0;
@@ -137,20 +135,6 @@ void initializeDiagnostics() {
         preferences.putUInt("crashes", unexpectedResetCount);
     }
     lastRecoveryReason = preferences.getString("restartWhy", "none");
-}
-
-void configureNetworkWatchdog() {
-    const esp_task_wdt_config_t config = {
-        .timeout_ms = HANDSCANNER_NETWORK_WATCHDOG_MS,
-        .idle_core_mask = 0,
-        .trigger_panic = true,
-    };
-    esp_err_t result = esp_task_wdt_reconfigure(&config);
-    if (result == ESP_ERR_INVALID_STATE) result = esp_task_wdt_init(&config);
-    if (result == ESP_OK) result = esp_task_wdt_add(nullptr);
-    networkWatchdogEnabled = result == ESP_OK || result == ESP_ERR_INVALID_STATE;
-    Serial.printf("Network watchdog: %s (%d)\n", networkWatchdogEnabled ? "enabled" : "unavailable",
-                  static_cast<int>(result));
 }
 
 void scheduleRecoveryRestart(const char *reason) {
@@ -437,8 +421,7 @@ void startHealthApi() {
             body += ",\"restart_pending\":";
             body += rebootRequested ? "true" : "false";
             body += ",\"restart_reason\":\"" + pendingRestartReason + "\"";
-            body += ",\"network_watchdog_enabled\":";
-            body += networkWatchdogEnabled ? "true" : "false";
+            body += ",\"network_watchdog_enabled\":false";
             body += ",\"http_in_flight\":";
             body += httpRequestInFlight ? "true" : "false";
             body += ",\"http_operation\":\"" + httpRequestKind + "\"";
@@ -708,7 +691,6 @@ void networkTask(void *) {
     bool hasPendingMessage = false;
 
     initializeDiagnostics();
-    configureNetworkWatchdog();
     hasPendingMessage = loadPersistedSequence(pendingMessage);
     if (hasPendingMessage) {
         sequenceReportState = SequenceReportState::Pending;
@@ -720,7 +702,6 @@ void networkTask(void *) {
     wifiDisconnectedSince = millis();
 
     for (;;) {
-        if (networkWatchdogEnabled) esp_task_wdt_reset();
         if (!hasPendingMessage && xQueueReceive(sequenceQueue, &pendingMessage, 0) == pdTRUE) {
             hasPendingMessage = true;
             sequenceReportState = SequenceReportState::Pending;

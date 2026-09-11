@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
 
 #include "app_config.h"
 #include "audio_engine.h"
@@ -51,9 +52,10 @@ enum class ResultState : uint8_t {
 
 enum class OutcomeStage : uint8_t {
     Idle,
+    QueueingReport,
     WaitingForAudio,
     ShowingVisual,
-    Reporting,
+    WaitingForReport,
 };
 
 Arduino_ESP32DSIPanel dsiPanel(
@@ -270,10 +272,22 @@ void checkAccess() {
     outcomeCorrect = correctSequence();
     outcomeInputCount = pressCount;
     memcpy(outcomeInput, userInput, sizeof(outcomeInput));
-    outcomeStage = OutcomeStage::WaitingForAudio;
+    outcomeStage = OutcomeStage::QueueingReport;
 
     if (outcomeCorrect) {
         solved = true;
+    }
+}
+
+void queueOutcomeReportAndStartAudio() {
+    if (!networkSubmitSequence(outcomeInput, outcomeInputCount)) {
+        Serial.println("API: report queue busy; waiting before result audio");
+        return;
+    }
+
+    Serial.println("API: validated sequence queued for Home Assistant");
+    outcomeStage = OutcomeStage::WaitingForAudio;
+    if (outcomeCorrect) {
         outcomeAudioId = audioPlayTracked(grantedClip());
         Serial.println("Game: correct sequence; playing grant audio");
     } else {
@@ -342,30 +356,24 @@ void beginOutcomeVisual(uint32_t now) {
     outcomeStage = OutcomeStage::ShowingVisual;
 }
 
-void submitOutcomeReport() {
-    if (!networkSubmitSequence(outcomeInput, outcomeInputCount)) {
-        Serial.println("API: report queue busy; retrying");
-        return;
-    }
-    outcomeStage = OutcomeStage::Reporting;
-    Serial.println("API: visual complete; queued Home Assistant event");
-}
-
 void updateOutcome(uint32_t now) {
     switch (outcomeStage) {
         case OutcomeStage::Idle:
+            return;
+        case OutcomeStage::QueueingReport:
+            queueOutcomeReportAndStartAudio();
             return;
         case OutcomeStage::WaitingForAudio:
             if (audioPlaybackComplete(outcomeAudioId)) beginOutcomeVisual(now);
             return;
         case OutcomeStage::ShowingVisual:
             if (outcomeCorrect) {
-                if (updateSuccessFade(now)) submitOutcomeReport();
+                if (updateSuccessFade(now)) outcomeStage = OutcomeStage::WaitingForReport;
             } else if (now - outcomeVisualStartedAt >= kDeniedDurationMs) {
-                submitOutcomeReport();
+                outcomeStage = OutcomeStage::WaitingForReport;
             }
             return;
-        case OutcomeStage::Reporting:
+        case OutcomeStage::WaitingForReport:
             if (networkSequenceReportState() == SequenceReportState::Acknowledged) {
                 Serial.println(outcomeCorrect
                                    ? "Game: ACCESS GRANTED acknowledged by Home Assistant"
@@ -452,6 +460,7 @@ void resumeUiAfterOtaFailure() {
 void setup() {
     Serial.begin(115200);
     delay(200);
+    esp_ota_mark_app_valid_cancel_rollback();
     Serial.println("Native Handscanner starting (Waveshare SKU 33150)");
 
     if ((base_end - base_start) != kWidth * kHeight * 2 ||
